@@ -1,41 +1,33 @@
 import sys
 import os
-import json
 
-# Add parent directory to sys.path to allow importing from rpc_core
+# Ensure the parent directory is in the path so we can import modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from rpc_core.transport import RPCServerTransport
+from rpc_core.rpc_server import RPCServer
+from server.services.calculator_service import CalculatorService
+from server.generated_skeleton import CalculatorSkeleton
 
-def simple_handler(data: bytes) -> bytes:
-    """
-    A temporary handler that just echoes back the received data to prove
-    that the communication layer works.
-    """
-    try:
-        # Attempt to decode as JSON just to show we can process it
-        message = json.loads(data.decode('utf-8'))
-        print(f"Server received: {message}")
-        
-        # Create a dummy response
-        response = {
-            "status": "success",
-            "received_message": message,
-            "message": "Hello from the server!"
-        }
-        return json.dumps(response).encode('utf-8')
-    except Exception as e:
-        print(f"Error processing message: {e}")
-        return json.dumps({"error": str(e)}).encode('utf-8')
-
-if __name__ == "__main__":
+def run_server():
     HOST = '127.0.0.1'
     PORT = 9999
     
-    server = RPCServerTransport(HOST, PORT, simple_handler)
-    print("Starting temporary test server...")
+    # 1. Initialize the Core RPC Server
+    rpc_server = RPCServer(HOST, PORT)
+    
+    # 2. Instantiate the actual business logic service
+    calc_service = CalculatorService()
+    
+    # 3. Use the auto-generated skeleton to bind the service to the RPC server
+    skeleton = CalculatorSkeleton(rpc_server, calc_service)
+    
+    # 4. Start serving requests
+    print("Starting Calculator RPC Server...")
     try:
-        server.start()
+        rpc_server.start()
     except KeyboardInterrupt:
         print("\nShutting down server...")
-        server.stop()
+        rpc_server.stop()
+
+if __name__ == "__main__":
+    run_server()
