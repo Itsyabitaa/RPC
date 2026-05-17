@@ -1,12 +1,15 @@
 import socket
+import uuid
+import time
 from rpc_core.transport import RPCClientTransport
 from rpc_core.serializer import JSONSerializer, DeserializationError
 from rpc_core.protocol import RPCError, RPCErrorCodes
 
 class RPCClient:
     def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
         self.transport = RPCClientTransport(host, port)
-        self.request_id_counter = 0
 
     def connect(self):
         self.transport.connect()
@@ -14,11 +17,10 @@ class RPCClient:
     def disconnect(self):
         self.transport.close()
 
-    def _generate_request_id(self) -> int:
-        self.request_id_counter += 1
-        return self.request_id_counter
+    def _generate_request_id(self) -> str:
+        return uuid.uuid4().hex
 
-    def call(self, method_name: str, *params, timeout: float = 5.0):
+    def call(self, method_name: str, *params, timeout: float = 5.0, max_retries: int = 3):
         """
         Invokes a remote method synchronously with a timeout.
         """
@@ -32,33 +34,45 @@ class RPCClient:
         # 1. Marshal Request
         data = JSONSerializer.serialize(request_payload)
 
-        # 2. Set Timeout & Send
-        self.transport.set_timeout(timeout)
-        self.transport.send(data)
+        retries = 0
+        while retries <= max_retries:
+            try:
+                # 2. Set Timeout & Send
+                # If we are retrying, we might need to reconnect if the socket was closed
+                if self.transport.sock is None:
+                    self.transport.connect()
+                
+                self.transport.set_timeout(timeout)
+                self.transport.send(data)
 
-        # 3. Wait for Response
-        try:
-            response_data = self.transport.receive()
-            if response_data is None:
-                raise RPCError(RPCErrorCodes.INTERNAL_ERROR, "Server closed the connection unexpectedly.")
+                # 3. Wait for Response
+                response_data = self.transport.receive()
+                if response_data is None:
+                    raise RPCError(RPCErrorCodes.INTERNAL_ERROR, "Server closed the connection unexpectedly.")
 
-            # 4. Unmarshal Response
-            response = JSONSerializer.deserialize(response_data)
-            
-            # 5. Check for Match
-            if response.get("request_id") != request_id:
-                raise RPCError(RPCErrorCodes.INTERNAL_ERROR, "Request ID mismatch in response.")
+                # 4. Unmarshal Response
+                response = JSONSerializer.deserialize(response_data)
+                
+                # 5. Check for Match
+                if response.get("request_id") != request_id:
+                    raise RPCError(RPCErrorCodes.INTERNAL_ERROR, "Request ID mismatch in response.")
 
-            # 6. Check for Error
-            if response.get("error"):
-                err_dict = response["error"]
-                raise RPCError(err_dict.get("code", RPCErrorCodes.INTERNAL_ERROR), err_dict.get("message", "Unknown error"))
+                # 6. Check for Error
+                if response.get("error"):
+                    err_dict = response["error"]
+                    raise RPCError(err_dict.get("code", RPCErrorCodes.INTERNAL_ERROR), err_dict.get("message", "Unknown error"))
 
-            return response.get("result")
+                return response.get("result")
 
-        except socket.timeout:
-            raise RPCError(RPCErrorCodes.TIMEOUT, f"Request timed out after {timeout} seconds.")
-        except Exception as e:
-            if isinstance(e, RPCError):
-                raise e
-            raise RPCError(RPCErrorCodes.INTERNAL_ERROR, f"Client error: {e}")
+            except socket.timeout:
+                retries += 1
+                print(f"[-] Request timed out. Retrying {retries}/{max_retries}...")
+                self.transport.close() # Close socket to force reconnect on next loop
+                if retries > max_retries:
+                    raise RPCError(RPCErrorCodes.TIMEOUT, f"Request timed out after {max_retries} retries.")
+                time.sleep(0.5) # Short backoff
+                
+            except Exception as e:
+                if isinstance(e, RPCError):
+                    raise e
+                raise RPCError(RPCErrorCodes.INTERNAL_ERROR, f"Client error: {e}")
