@@ -10,7 +10,7 @@ from server.generated_skeleton import CalculatorSkeleton
 
 def run_server():
     HOST = '127.0.0.1'
-    PORT = 9999
+    PORT = 5555
     
     # 1. Initialize the Core RPC Server
     rpc_server = RPCServer(HOST, PORT)
