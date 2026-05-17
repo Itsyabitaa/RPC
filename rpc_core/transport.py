@@ -115,6 +115,10 @@ class RPCClientTransport:
         self.sock.connect((self.host, self.port))
         print(f"[*] Connected to {self.host}:{self.port}")
 
+    def set_timeout(self, seconds: float):
+        if self.sock:
+            self.sock.settimeout(seconds)
+
     def send(self, data: bytes):
         if not self.sock:
             raise Exception("Not connected to server")
