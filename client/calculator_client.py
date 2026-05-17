@@ -9,7 +9,7 @@ from client.generated_stub import CalculatorStub
 
 def run_client():
     HOST = '127.0.0.1'
-    PORT = 9999
+    PORT = 5555
     
     # 1. Initialize the core RPC Client
     rpc_client = RPCClient(HOST, PORT)
